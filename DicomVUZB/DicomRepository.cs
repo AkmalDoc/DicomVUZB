@@ -11,7 +11,7 @@ namespace DicomVUZB
     {
         public List<DicomStudy> Load(string path)
         {
-            var files = File.Exists(path) ? new[] { path } : Directory.GetFiles(path, "*.*", SearchOption.AllDirectories);
+            var files = File.Exists(path) ? new[] { path } : Directory.GetFiles(path, "*", SearchOption.AllDirectories);
             var studies = new Dictionary<string, DicomStudy>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var file in files)
@@ -47,18 +47,21 @@ namespace DicomVUZB
                         {
                             SeriesInstanceUid = seriesUid,
                             SeriesDescription = Get(dataset, DicomTag.SeriesDescription, "Без описания"),
-                            SeriesNumber = GetInt(dataset, DicomTag.SeriesNumber)
+                            SeriesNumber = GetInt(dataset, DicomTag.SeriesNumber),
+                            Modality = Get(dataset, DicomTag.Modality, string.Empty)
                         };
                         study.Series.Add(series);
                     }
 
-                    series.Images.Add(new DicomImageItem
+                    var imageItem = new DicomImageItem
                     {
                         FilePath = file,
                         InstanceNumber = GetInt(dataset, DicomTag.InstanceNumber),
                         SopInstanceUid = Get(dataset, DicomTag.SOPInstanceUID, file),
                         SliceLocation = GetDouble(dataset, DicomTag.SliceLocation)
-                    });
+                    };
+                    DicomSpatialHelper.PopulateFromDataset(imageItem, dataset, series.SeriesDescription);
+                    series.Images.Add(imageItem);
                 }
                 catch (DicomException)
                 {
@@ -66,11 +69,19 @@ namespace DicomVUZB
                 catch (InvalidDataException)
                 {
                 }
+                catch (Exception)
+                {
+                }
             }
 
             foreach (var study in studies.Values)
+            {
                 foreach (var series in study.Series)
+                {
                     series.Images.Sort((a, b) => a.InstanceNumber.CompareTo(b.InstanceNumber));
+                    DicomSpatialHelper.FinalizeSeriesSpatialMetadata(series);
+                }
+            }
 
             return studies.Values.ToList();
         }
@@ -78,7 +89,35 @@ namespace DicomVUZB
         private static bool IsSupported(string file)
         {
             var extension = Path.GetExtension(file).ToLowerInvariant();
-            return extension == ".dcm" || extension == ".dicom" || string.IsNullOrEmpty(extension);
+            if (extension == ".dcm" || extension == ".dicom" || extension == ".ima" || string.IsNullOrEmpty(extension))
+                return true;
+
+            return HasDicomMagic(file);
+        }
+
+        private static bool HasDicomMagic(string file)
+        {
+            try
+            {
+                var info = new FileInfo(file);
+                if (info.Length < 132)
+                    return false;
+
+                using (var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    if (fs.Length < 132)
+                        return false;
+                    fs.Seek(128, SeekOrigin.Begin);
+                    return fs.ReadByte() == 'D' &&
+                           fs.ReadByte() == 'I' &&
+                           fs.ReadByte() == 'C' &&
+                           fs.ReadByte() == 'M';
+                }
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static string Get(DicomDataset dataset, DicomTag tag, string fallback)

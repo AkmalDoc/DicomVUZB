@@ -42,7 +42,8 @@ namespace DicomVUZB
                         {
                             SeriesInstanceUid = Get(seriesRecord, DicomTag.SeriesInstanceUID, Guid.NewGuid().ToString()),
                             SeriesDescription = Get(seriesRecord, DicomTag.SeriesDescription, "Без описания"),
-                            SeriesNumber = GetInt(seriesRecord, DicomTag.SeriesNumber)
+                            SeriesNumber = GetInt(seriesRecord, DicomTag.SeriesNumber),
+                            Modality = Get(seriesRecord, DicomTag.Modality, string.Empty)
                         };
                         study.Series.Add(series);
 
@@ -64,6 +65,7 @@ namespace DicomVUZB
                             });
                         }
                         series.Images.Sort((a, b) => a.InstanceNumber.CompareTo(b.InstanceNumber));
+                        DicomSpatialHelper.FinalizeSeriesSpatialMetadata(series);
                     }
                 }
             }
@@ -86,20 +88,20 @@ namespace DicomVUZB
         private static string Get(DicomDirectoryRecord record, DicomTag tag, string fallback)
         {
             string value;
-            return record.Dataset.TryGetSingleValue(tag, out value) && !string.IsNullOrWhiteSpace(value) ? value : fallback;
+            return record.TryGetSingleValue(tag, out value) && !string.IsNullOrWhiteSpace(value) ? value : fallback;
         }
 
         private static int GetInt(DicomDirectoryRecord record, DicomTag tag)
         {
             int value;
-            return record.Dataset.TryGetSingleValue(tag, out value) ? value : 0;
+            return record.TryGetSingleValue(tag, out value) ? value : 0;
         }
 
         private static string GetFileId(DicomDirectoryRecord record)
         {
             try
             {
-                var parts = record.Dataset.GetValues<string>(DicomTag.ReferencedFileID);
+                var parts = record.GetValues<string>(DicomTag.ReferencedFileID);
                 return parts == null ? null : Path.Combine(parts);
             }
             catch (DicomDataException)

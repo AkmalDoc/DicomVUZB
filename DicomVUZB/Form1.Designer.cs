@@ -1,4 +1,4 @@
-﻿namespace DicomVUZB
+namespace DicomVUZB
 {
     partial class Form1
     {
